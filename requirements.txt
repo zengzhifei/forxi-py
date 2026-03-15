@@ -1,7 +1,7 @@
 fastapi==0.115.0
 uvicorn==0.32.0
 rembg==2.0.72
-pillow==10.4.0
+pillow==12.1.0
 python-multipart==0.0.12
 aiofiles==24.1.0
 requests==2.32.3

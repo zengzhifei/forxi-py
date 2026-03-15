@@ -1,5 +1,6 @@
 import io
 import os
+import gc
 from typing import Tuple, Optional
 from PIL import Image
 from rembg import remove, new_session
@@ -68,16 +69,22 @@ class ImageProcessor:
     def change_background(self, img: Image.Image, color: str) -> Image.Image:
         if img.mode != 'RGBA':
             img = img.convert('RGBA')
+        
+        color = color.strip()
+        if not color.startswith('#') or len(color) != 7:
+            color = '#FFFFFF'
+        
         r = int(color[1:3], 16)
         g = int(color[3:5], 16)
         b = int(color[5:7], 16)
         alpha = img.split()[3]
-        bg = Image.new('RGB', img.size, (r, g, b))
-        bg.putalpha(alpha)
+        bg = Image.new('RGBA', img.size, (r, g, b, 255))
+        bg.paste(img, (0, 0), img)
         return bg
     
-    def resize_for_photo(self, img: Image.Image, target_size: Tuple[int, int]) -> Image.Image:
-        img = self.crop_to_content(img, padding=20)
+    def resize_for_photo(self, img: Image.Image, target_size: Tuple[int, int], crop: bool = True, padding: int = 20) -> Image.Image:
+        if crop:
+            img = self.crop_to_content(img, padding=padding)
         target_width, target_height = target_size
         img_ratio = img.width / img.height
         target_ratio = target_width / target_height
@@ -103,16 +110,25 @@ class ImageProcessor:
         input_image = self.compress(input_image)
         
         no_bg = remove(input_image, session=session)
+        input_image.close()
+        
         no_bg = self.crop_to_content(no_bg, padding=10)
         
         if bg_color != '#FFFFFF':
             no_bg = self.change_background(no_bg, bg_color)
         
-        final = self.resize_for_photo(no_bg, target_size)
+        final = self.resize_for_photo(no_bg, target_size, crop=False)
         
         output_buffer = io.BytesIO()
         final.save(output_buffer, format='PNG')
-        return output_buffer.getvalue()
+        result = output_buffer.getvalue()
+        
+        no_bg.close()
+        final.close()
+        output_buffer.close()
+        gc.collect()
+        
+        return result
 
 
 processor = ImageProcessor()

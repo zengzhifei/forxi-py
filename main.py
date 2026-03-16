@@ -49,4 +49,4 @@ if __name__ == "__main__":
     print('Using u2netp model (lightweight - optimized for 2GB RAM)')
     print('Server will be available at http://localhost:8000')
     print('API Documentation: http://localhost:8000/docs')
-    uvicorn.run("main:app", port=8000, workers=1)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, workers=1)

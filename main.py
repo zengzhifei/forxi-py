@@ -3,6 +3,12 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import os
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(levelname)-9s %(name)s - %(message)s'
+)
 
 from core.file_utils import ensure_directories
 

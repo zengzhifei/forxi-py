@@ -5,11 +5,14 @@ import time
 import asyncio
 import io
 import base64
+import logging
 
 from PIL import Image
 
 from core.config import config
-from modules.image.processor import processor
+from modules.image.processor import processor, _trim_memory, _log_memory
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix='/api/image', tags=['Image'])
 
@@ -82,6 +85,7 @@ async def crop_image(
     start_time = time.time()
     
     def process_crop():
+        before = _log_memory('crop start')
         img = Image.open(io.BytesIO(contents)).convert('RGBA')
         img = processor.compress(img)
         
@@ -92,7 +96,16 @@ async def crop_image(
         
         output_buffer = io.BytesIO()
         cropped.save(output_buffer, format='PNG')
-        return output_buffer.getvalue(), cropped.width, cropped.height
+        result_bytes = output_buffer.getvalue()
+        w, h = cropped.width, cropped.height
+        img.close()
+        cropped.close()
+        output_buffer.close()
+        _trim_memory()
+        after = _log_memory('crop end  ')
+        delta = before - after
+        logger.info('[MEMORY] crop delta: %+.1f MB (%s)', delta, 'freed' if delta >= 0 else 'grew')
+        return result_bytes, w, h
     
     result_bytes, result_width, result_height = await process_async(process_crop)
     img_base64 = base64.b64encode(result_bytes).decode('utf-8')

@@ -1,9 +1,39 @@
 import io
 import os
 import gc
+import sys
+import ctypes
+import logging
+import psutil
 from typing import Tuple, Optional
 from PIL import Image
 from rembg import remove, new_session
+
+logger = logging.getLogger(__name__)
+_process = psutil.Process()
+
+
+def _rss_mb() -> float:
+    return _process.memory_info().rss / 1024 / 1024
+
+
+def _log_memory(label: str) -> float:
+    """Log current RSS and return it for delta calculation."""
+    rss = _rss_mb()
+    logger.info('[MEMORY] %s: %.1f MB', label, rss)
+    return rss
+
+
+def _trim_memory():
+    """Release Python objects, then ask the OS-level malloc to return free pages."""
+    gc.collect()
+    try:
+        if sys.platform == 'linux':
+            ctypes.CDLL('libc.so.6').malloc_trim(0)
+        elif sys.platform == 'darwin':
+            ctypes.CDLL('libSystem.B.dylib').malloc_zone_pressure_relief(None, 0)
+    except Exception:
+        pass
 
 
 CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'models')
@@ -36,13 +66,22 @@ class ImageProcessor:
         return img
     
     def remove_background(self, image_bytes: bytes) -> bytes:
+        before = _log_memory('remove_background start')
         session = self._get_session()
         input_image = Image.open(io.BytesIO(image_bytes)).convert('RGBA')
         input_image = self.compress(input_image)
         output_image = remove(input_image, session=session)
+        input_image.close()
         output_buffer = io.BytesIO()
         output_image.save(output_buffer, format='PNG')
-        return output_buffer.getvalue()
+        result = output_buffer.getvalue()
+        output_image.close()
+        output_buffer.close()
+        _trim_memory()
+        after = _log_memory('remove_background end  ')
+        delta = before - after
+        logger.info('[MEMORY] remove_background delta: %+.1f MB (%s)', delta, 'freed' if delta >= 0 else 'grew')
+        return result
     
     def crop_to_content(self, img: Image.Image, padding: int = 10) -> Image.Image:
         if img.mode != 'RGBA':
@@ -77,7 +116,6 @@ class ImageProcessor:
         r = int(color[1:3], 16)
         g = int(color[3:5], 16)
         b = int(color[5:7], 16)
-        alpha = img.split()[3]
         bg = Image.new('RGBA', img.size, (r, g, b, 255))
         bg.paste(img, (0, 0), img)
         return bg
@@ -105,6 +143,7 @@ class ImageProcessor:
         return bg
     
     def create_photo(self, image_bytes: bytes, bg_color: str, target_size: Tuple[int, int]) -> bytes:
+        before = _log_memory('create_photo start')
         session = self._get_session()
         input_image = Image.open(io.BytesIO(image_bytes)).convert('RGBA')
         input_image = self.compress(input_image)
@@ -126,8 +165,11 @@ class ImageProcessor:
         no_bg.close()
         final.close()
         output_buffer.close()
-        gc.collect()
-        
+        _trim_memory()
+        after = _log_memory('create_photo end  ')
+        delta = before - after
+        logger.info('[MEMORY] create_photo delta: %+.1f MB (%s)', delta, 'freed' if delta >= 0 else 'grew')
+
         return result
 
 
